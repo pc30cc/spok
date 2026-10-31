@@ -1,15 +1,12 @@
-# انتقال دیتابیس از Supabase به PostgreSQL سلف‌هاست روی Coolify
+# دیتابیس PostgreSQL سلف‌هاست روی Coolify
 
-این راهنما دیتابیس سایت را از Supabase به یک کانتینر اختصاصی PostgreSQL روی همان سرور Coolify
-منتقل می‌کند. کد سایت هر دو حالت را پشتیبانی می‌کند:
+سایت فقط با PostgreSQL کار می‌کند. رشتهٔ اتصال از متغیر محیطی `DATABASE_URL` خوانده می‌شود و
+لایهٔ `src/lib/pg-db.server.ts` با درایور `pg` مستقیم به دیتابیس وصل می‌شود (کد سایت از طریق
+`db` در `src/lib/db.server.ts` به آن دسترسی دارد؛ نوع جدول‌ها در `src/lib/db-types.ts` است).
 
-| متغیر `DATABASE_URL` | دیتابیس مورد استفاده |
-| --- | --- |
-| تنظیم شده | PostgreSQL سلف‌هاست (اتصال مستقیم با درایور `pg`) |
-| تنظیم نشده | Supabase (مثل قبل) |
-
-لایهٔ `src/lib/pg-db.server.ts` همان API کلاینت Supabase را پیاده می‌کند، پس هیچ بخش دیگری از کد
-تغییر نکرده و برگشت به Supabase فقط با حذف `DATABASE_URL` ممکن است.
+اگر `DATABASE_URL` تنظیم نشده باشد، هر کوئری خطای «DATABASE_URL تنظیم نشده است» برمی‌گرداند:
+صفحات عمومی با تنظیمات پیش‌فرض بالا می‌آیند، ورود به پنل ممکن نیست و `GET /api/public/health`
+وضعیت 503 برمی‌گرداند.
 
 ---
 
@@ -32,59 +29,32 @@
 > اپ و دیتابیس باید در یک شبکهٔ Docker باشند (در Coolify: هر دو در یک Project/Environment، یا
 > گزینهٔ «Connect to Predefined Network»).
 
-## ۲) انتقال داده‌ها
-
-اسکریپت `scripts/db/migrate-from-supabase.mjs` کل اسکیمای `public` و همهٔ ردیف‌ها را منتقل و در
-پایان **تعداد ردیف تک‌تک جدول‌ها را در مبدأ و مقصد مقایسه** می‌کند. اگر مقصد داده داشته باشد بدون
-`--force` کاری انجام نمی‌دهد، و انتقال در یک تراکنش است: یا کامل انجام می‌شود یا هیچ تغییری نمی‌دهد.
-جدول `site_presence` (فقط «آنلاین‌های لحظه‌ای») منتقل نمی‌شود.
-
-### روش A — دقیق‌ترین: `pg_dump` (اگر رمز دیتابیس Supabase را دارید)
-
-ساختار را دقیقاً همان‌طور که روی Supabase هست (ستون‌ها، پیش‌فرض‌ها، ایندکس‌ها، محدودیت‌ها) با
-`pg_dump` می‌برد و بخش‌های مخصوص Supabase (RLS، policy، grant) را حذف می‌کند.
-
-`SOURCE_DATABASE_URL` را از داشبورد Supabase ← **Connect ← Session pooler / Direct** بردارید.
-روی سرور Coolify (از داخل پوشهٔ ریپو):
-
-```sh
-docker build -t webyar-migrate -f docker/migrate/Dockerfile .
-docker run --rm --network coolify \
-  -e SOURCE_DATABASE_URL='postgresql://postgres.xxxx:PASS@aws-0-xx.pooler.supabase.com:5432/postgres' \
-  -e TARGET_DATABASE_URL='postgresql://webyar:PASS@<db-host>:5432/webyar' \
-  webyar-migrate
-```
-
-### روش B — بدون رمز دیتابیس: API سرویس Supabase
-
-اگر پروژه روی Lovable Cloud است و رمز مستقیم دیتابیس را ندارید، همان `SUPABASE_URL` و
-`SUPABASE_SERVICE_ROLE_KEY` که سایت الان دارد کافی است. در Coolify ← اپ سایت ← **Terminal**:
-
-```sh
-TARGET_DATABASE_URL='postgresql://webyar:PASS@<db-host>:5432/webyar' \
-  node scripts/db/migrate-from-supabase.mjs --method=api
-```
-
-فهرست جدول‌ها و ستون‌ها از OpenAPI خود Supabase خوانده می‌شود؛ هر جدول/ستونی که در
-`db/schema.sql` نباشد با نوع واقعی‌اش ساخته می‌شود.
-
-خروجی موفق در پایان یک جدول ✓ برای همهٔ جدول‌ها و پیام «انتقال کامل و تأییدشده انجام شد» است.
-
-## ۳) وصل کردن سایت به دیتابیس جدید
+## ۲) وصل کردن سایت به دیتابیس
 
 1. Coolify ← اپ سایت ← **Environment Variables**:
    `DATABASE_URL=postgresql://webyar:PASS@<db-host>:5432/webyar`
-2. **Redeploy**. هنگام بالا آمدن، `db/schema.sql` به‌صورت idempotent اجرا می‌شود (جدول‌های جدید
-   مثل `backup_runs` ساخته می‌شوند، هیچ داده‌ای حذف نمی‌شود).
-3. در پنل ادمین ← **پشتیبان‌گیری** باید برچسب «دیتابیس: PostgreSQL سلف‌هاست» را ببینید.
+   (برای سرور بیرونی با SSL، `?sslmode=require` را به انتهای آدرس اضافه کنید.)
+2. **Redeploy**. هنگام بالا آمدن، `db/schema.sql` به‌صورت idempotent اجرا می‌شود (روی دیتابیس
+   خالی همهٔ جدول‌ها ساخته می‌شوند و جدول‌های جدید مثل `backup_runs` به دیتابیس موجود اضافه
+   می‌شوند؛ هیچ داده‌ای حذف نمی‌شود). با `DATABASE_AUTO_MIGRATE=false` این مرحله غیرفعال می‌شود.
+3. `GET /api/public/health` باید `"database": "ok"` برگرداند.
 
-برای برگشت به Supabase کافی است `DATABASE_URL` را حذف و Redeploy کنید. توجه: داده‌هایی که در این
-فاصله در Postgres ثبت شده‌اند به Supabase برنمی‌گردند (با بک‌آپ/بازیابی پنل منتقلشان کنید).
+## ۳) انتقال داده به یک دیتابیس دیگر
+
+- **از پنل ادمین ← پشتیبان‌گیری ← انتقال دیتابیس به دیتابیس**: رشتهٔ اتصال PostgreSQL مقصد را
+  وارد کنید؛ ساختار جدول‌ها و همهٔ داده‌ها با یک کلیک منتقل و تعداد ردیف‌ها مقایسه می‌شود.
+- **دستی با ابزارهای PostgreSQL:**
+
+  ```sh
+  pg_dump --no-owner --no-privileges "$SOURCE_DATABASE_URL" | psql "$TARGET_DATABASE_URL" -v ON_ERROR_STOP=1
+  ```
 
 ## ۴) بک‌آپ دستی و روزانه (پنل ادمین ← پشتیبان‌گیری)
 
-- **گرفتن بک‌آپ الان**: کل دیتابیس به یک فایل `json.gz` تبدیل و روی همان فضای ذخیره‌سازی‌ای که در
-  **تنظیمات عمومی ← ذخیره‌سازی رسانه** وصل است (بانی سی‌دی‌ان یا ابر آروان) آپلود می‌شود.
+- **گرفتن بک‌آپ الان**: کل دیتابیس با `pg_dump` به یک فایل `sql.gz` تبدیل و روی همان فضای
+  ذخیره‌سازی‌ای که در **تنظیمات عمومی ← ذخیره‌سازی رسانه** وصل است (بانی سی‌دی‌ان یا ابر آروان)
+  آپلود می‌شود. اگر `pg_dump` روی سرور نباشد، فایل `json.gz` ساخته می‌شود (ایمیج Nixpacks
+  ابزارهای `postgresql_17` را نصب می‌کند).
 - **بک‌آپ خودکار روزانه**: روشن/خاموش، ساعت اجرا به وقت تهران، مدت نگه‌داری (روز) و حداقل تعداد
   نسخه‌ای که همیشه نگه داشته می‌شود. زمان‌بند داخلی سرور هر ۵ دقیقه بررسی می‌کند و اگر سرور سر
   ساعت خاموش بوده، همان روز جبران می‌کند.
@@ -93,8 +63,9 @@ TARGET_DATABASE_URL='postgresql://webyar:PASS@<db-host>:5432/webyar' \
   با کلید سمت سرور انجام می‌شود. روی بانی، Storage Zone به‌صورت پیش‌فرض از طریق Pull Zone عمومی
   است؛ اگر می‌خواهید پوشهٔ `backups/` اصلاً از سی‌دی‌ان در دسترس نباشد، در Pull Zone یک Edge Rule
   برای مسدود کردن `*/backups/*` بگذارید.
-- فایل دانلودشده بعد از unzip (`gunzip`) همان فرمت JSON است و از بخش «بازیابی از فایل JSON» هم
-  قابل بازیابی است.
+- بازیابی دستی فایل `sql.gz` بیرون از پنل:
+  `gunzip -c file.sql.gz | psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction`.
+  فایل `json.gz` بعد از unzip (`gunzip`) از بخش «بازیابی از فایل JSON» پنل قابل بازیابی است.
 
 ## تست
 

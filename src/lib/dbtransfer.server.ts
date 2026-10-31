@@ -1,4 +1,4 @@
-// انتقال مستقیم دیتابیس به دیتابیس — اتصال خام PostgreSQL به سرور مقصد (psql/Supabase سلف‌هاست).
+// انتقال مستقیم دیتابیس به دیتابیس — اتصال خام PostgreSQL به سرور مقصد (هر سرور PostgreSQL).
 // فقط سمت سرور اجرا می‌شود.
 import type { Client } from "pg";
 import { TABLES, type ColumnDef, type TableDef } from "./backup.functions";
@@ -222,10 +222,7 @@ export async function compareWithTarget(connectionString: string): Promise<Compa
     }
 
     const identical = tables.every(
-      (t) =>
-        !t.missingOnTarget &&
-        t.missingColumns.length === 0 &&
-        t.targetRows === t.sourceRows,
+      (t) => !t.missingOnTarget && t.missingColumns.length === 0 && t.targetRows === t.sourceRows,
     );
 
     return { identical, targetTableCount: Number(all.rows[0]?.count ?? 0), tables };

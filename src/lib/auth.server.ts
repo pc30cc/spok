@@ -1,4 +1,4 @@
-// احراز هویت اختصاصی WEBYAR — بدون Supabase Auth.
+// احراز هویت اختصاصی WEBYAR — کاربران در جدول users دیتابیس خود سایت.
 // رمز عبور با PBKDF2-SHA256 هش می‌شود و نشست‌ها در جدول user_sessions نگهداری می‌شوند.
 import {
   getCookie,

@@ -1,11 +1,8 @@
 -- اسکیمای کامل دیتابیس WEBYAR برای PostgreSQL سلف‌هاست (کانتینر Coolify).
--- معادل تجمیعی همه فایل‌های supabase/migrations بدون بخش‌های مخصوص Supabase
--- (RLS، GRANT به service_role). کاملاً idempotent است: اجرای چندباره هیچ داده‌ای را
--- حذف یا تغییر نمی‌دهد. سرور در حالت DATABASE_URL هنگام بالا آمدن خودکار اجرایش می‌کند.
---
--- نکته: انتقال اصلی با scripts/db/migrate-from-supabase.sh و pg_dump انجام می‌شود که
--- ساختار واقعی دیتابیس Supabase را عیناً منتقل می‌کند؛ این فایل برای نصب تازه و تضمین
--- وجود جدول‌های جدیدتر (مثل backup_runs) است.
+-- کاملاً idempotent است: اجرای چندباره هیچ داده‌ای را حذف یا تغییر نمی‌دهد. سرور هنگام بالا آمدن
+-- خودکار اجرایش می‌کند (ensureSchema در src/lib/pg-db.server.ts؛ با DATABASE_AUTO_MIGRATE=false
+-- غیرفعال می‌شود) تا روی دیتابیس تازه همه جدول‌ها ساخته شوند و جدول‌های جدیدتر (مثل backup_runs)
+-- به دیتابیس موجود اضافه شوند. نوع TypeScript جدول‌ها در src/lib/db-types.ts است.
 
 -- ============ USERS ============
 CREATE TABLE IF NOT EXISTS public.users (
@@ -118,7 +115,7 @@ CREATE INDEX IF NOT EXISTS blog_post_tags_tag_idx ON public.blog_post_tags(tag_i
 -- ============ MEDIA ============
 CREATE TABLE IF NOT EXISTS public.media_assets (
   id          varchar(36) NOT NULL PRIMARY KEY,
-  provider    varchar(40) NOT NULL DEFAULT 'supabase',
+  provider    varchar(40) NOT NULL DEFAULT 'external',
   path        text NOT NULL,
   url         text NOT NULL,
   filename    varchar(255) NOT NULL,
