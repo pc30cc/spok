@@ -1,18 +1,19 @@
-// @lovable.dev/vite-tanstack-config already includes the following — do NOT add them manually
-// or the app will break with duplicate plugins:
-//   - TanStack devtools (dev-only, first), tanstackStart, viteReact, tailwindcss, tsConfigPaths,
-//     nitro (build-only using cloudflare as a default target), VITE_* env injection, @ path alias,
-//     React/TanStack dedupe, error logger plugins, and sandbox detection (port/host/strictPort).
-// You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
-import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+// Vite config for TanStack Start (React SSR) with Tailwind CSS. `vite build` also runs Nitro, which
+// bundles the server into dist/server/index.mjs and the browser assets into dist/client.
+import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+import tailwindcss from "@tailwindcss/vite";
+import viteReact from "@vitejs/plugin-react";
+import { nitro } from "nitro/vite";
+import { defineConfig, loadEnv, mergeConfig, type UserConfig } from "vite";
+import tsConfigPaths from "vite-tsconfig-paths";
 import { copyFileSync, existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Plugin } from "vite";
 import { scrubBrandText } from "./src/lib/brand-scrub";
 
-// Self-hosted deploys (Coolify/Nixpacks) set NITRO_PRESET=node-server so the build
-// emits a plain Node server. Inside Lovable the platform preset still wins.
-const selfHostPreset = process.env["NITRO_PRESET"];
+// Nitro target of the build. The default is a plain Node server (what Coolify/Nixpacks runs, see
+// nixpacks.toml); NITRO_PRESET can still pick another Nitro preset.
+const nitroPreset = process.env["NITRO_PRESET"] || "node-server";
 
 // This repository (spok) only deploys the English site, respok.app, so every build is a
 // Respok build and must not ship anything that names the Persian brand to the browser.
@@ -93,24 +94,77 @@ function respokBrandScrub(): Plugin {
   };
 }
 
-export default defineConfig({
-  tanstackStart: {
-    // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
-    // nitro/vite builds from this
-    server: { entry: "server" },
-  },
-  ...(selfHostPreset
-    ? {
-        nitro: {
-          preset: selfHostPreset,
-          output: { dir: "dist", serverDir: "dist/server", publicDir: "dist/client" },
+/** Plugins and options shared by the dev server and the production build. */
+function baseConfig(command: "build" | "serve", mode: string): UserConfig {
+  // VITE_* variables (environment and .env files) are inlined in the client and the server code.
+  const envDefine: Record<string, string> = {};
+  for (const [key, value] of Object.entries(loadEnv(mode, process.cwd(), "VITE_")))
+    envDefine[`import.meta.env.${key}`] = JSON.stringify(value);
+
+  return {
+    define: envDefine,
+    // `vite build --mode development` (npm run build:dev) ships React's development build.
+    ...(command === "build" && mode === "development"
+      ? {
+          environments: {
+            client: { define: { "process.env.NODE_ENV": JSON.stringify("development") } },
+          },
+        }
+      : {}),
+    css: { transformer: "lightningcss" },
+    resolve: {
+      alias: { "@": `${process.cwd()}/src` },
+      dedupe: [
+        "react",
+        "react-dom",
+        "react/jsx-runtime",
+        "react/jsx-dev-runtime",
+        "@tanstack/react-query",
+        "@tanstack/query-core",
+      ],
+    },
+    optimizeDeps: {
+      include: [
+        "react",
+        "react-dom",
+        "react-dom/client",
+        "react/jsx-runtime",
+        "react/jsx-dev-runtime",
+      ],
+      ignoreOutdatedRequests: true,
+    },
+    server: { host: "::", port: 8080 },
+    plugins: [
+      tailwindcss(),
+      tsConfigPaths({ projects: ["./tsconfig.json"] }),
+      tanstackStart({
+        // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
+        // nitro/vite builds from this
+        server: { entry: "server" },
+        // A module under a server/ folder (or `server-only`) imported from browser code fails.
+        importProtection: {
+          behavior: "error",
+          client: { files: ["**/server/**"], specifiers: ["server-only"] },
         },
-      }
-    : {}),
-  vite: {
+      }),
+      ...(command === "build"
+        ? [
+            nitro({
+              preset: nitroPreset,
+              output: { dir: "dist", serverDir: "dist/server", publicDir: "dist/client" },
+            }),
+          ]
+        : []),
+      viteReact(),
+    ],
+  };
+}
+
+export default defineConfig(({ command, mode }) =>
+  mergeConfig(baseConfig(command, mode), {
     // `vite preview` on a custom domain otherwise rejects the request host.
     preview: { allowedHosts: true },
     define: { __RESPOK_BUILD__: JSON.stringify(respokBuild) },
     plugins: respokBuild ? [respokBrandScrub()] : [],
-  },
-});
+  }),
+);

@@ -6,8 +6,9 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 const url = process.env["TEST_DATABASE_URL"];
 
-describe.skipIf(!url)("pg-db (Supabase-compatible query builder)", () => {
-  let db: ReturnType<typeof import("./pg-db.server").createPgDb>;
+describe.skipIf(!url)("pg-db (query builder on a real PostgreSQL)", () => {
+  // جدول‌ها بدون نوع: تست عمداً مقدارهای ناسازگار با نوع ستون (مثل شیء برای ستون text) هم می‌فرستد
+  let db: import("./pg-db.server").PgDb;
   let pgQuery: typeof import("./pg-db.server").pgQuery;
 
   beforeAll(async () => {
@@ -29,7 +30,7 @@ describe.skipIf(!url)("pg-db (Supabase-compatible query builder)", () => {
 
     const all = await db.from("blog_tags").select("id, name").order("sort_order");
     expect(all.data!.map((r: any) => r.id)).toEqual(["t2", "t1", "t3"]);
-    expect(Object.keys(all.data![0])).toEqual(["id", "name"]);
+    expect(Object.keys(all.data![0]!)).toEqual(["id", "name"]);
 
     const page = await db
       .from("blog_tags")
