@@ -1,0 +1,274 @@
+import { getEnglishBrandName } from "@/lib/settings";
+import { RespokNotFoundSwitch } from "@/components/respok/RespokNotFound";
+import { RespokPage } from "@/components/respok/RespokPage";
+import { getSiteLanguage } from "@/lib/site-i18n";
+import {
+  useSiteLocale,
+  useSiteTranslation,
+} from "@/components/site/SiteLanguage";
+import { createFileRoute, Link, notFound } from "@tanstack/react-router";
+import { motion } from "framer-motion";
+import ReactMarkdown from "react-markdown";
+import { ArrowRight, Calendar, User, Tag as TagIcon } from "lucide-react";
+import { fetchSettings } from "@/lib/settings.functions";
+import {
+  buildPageMeta,
+  buildBreadcrumbJsonLd,
+  safeJsonLdHtml,
+} from "@/lib/seo-meta";
+import { getPublishedPost, listPublishedPosts } from "@/lib/blog.functions";
+import { SiteLayout } from "@/components/site/SiteLayout";
+
+export const Route = createFileRoute("/blog/$slug")({
+  loader: async ({ params }) => {
+    const [settings, post] = await Promise.all([
+      fetchSettings(),
+      getPublishedPost({ data: { slug: params.slug } }),
+    ]);
+    if (!post) throw notFound();
+    const related = (
+      await listPublishedPosts({
+        data: { categorySlug: post.categorySlug ?? undefined, limit: 4 },
+      })
+    )
+      .filter((p) => p.slug !== post.slug)
+      .slice(0, 3);
+    return { settings, post, related };
+  },
+  head: ({ loaderData, params }) => {
+    if (!loaderData) return {};
+    const { settings, post } = loaderData;
+    // مقاله به زبان اصلی خودش نمایش داده می‌شود؛ فقط نام برند در سایت انگلیسی Respok است.
+    const title =
+      post.seoTitle ||
+      `${post.title} | ${getSiteLanguage(settings) === "en" ? getEnglishBrandName(settings) : "وب‌یار"}`;
+    const desc = post.seoDescription || post.excerpt || post.title;
+    return buildPageMeta({
+      settings: {
+        ...settings,
+        localization: { ...settings.localization, language: "fa" },
+      },
+      path: `/blog/${params.slug}`,
+      override: null, // یک ردیف seo_pages سراسری برای این مسیر معنا ندارد؛ عنوان/توضیحات/تصویر پست همیشه اولویت دارند
+      fallbackTitle: title,
+      fallbackDescription: desc,
+      ...(post.coverImage ? { fallbackOgImage: post.coverImage } : {}),
+      ogType: "article",
+      extraMeta: [
+        {
+          property: "article:published_time",
+          content: post.publishedAt || post.createdAt,
+        },
+        { property: "article:modified_time", content: post.updatedAt },
+        ...(post.author
+          ? [{ property: "article:author", content: post.author }]
+          : []),
+        ...post.tags.map((tag) => ({ property: "article:tag", content: tag })),
+      ],
+    });
+  },
+  notFoundComponent: BlogNotFoundSwitch,
+  errorComponent: BlogError,
+  component: BlogPostPage,
+});
+
+function tagSlug(input: string): string {
+  return (input || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[\s_/\\.,:;!?"'`(){}[\]]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function PersianBlogPostPage() {
+  const translateText = useSiteTranslation();
+  const locale = useSiteLocale();
+
+  const { settings, post, related } = Route.useLoaderData();
+
+  const base = (settings.brand.siteUrl || "").replace(/\/$/, "");
+  const url = base ? `${base}/blog/${post.slug}` : undefined;
+  const jsonLd = [
+    {
+      "@context": "https://schema.org",
+      "@type": "Article",
+      headline: post.title,
+      description: post.excerpt,
+      image: post.coverImage || undefined,
+      url,
+      mainEntityOfPage: url ? { "@type": "WebPage", "@id": url } : undefined,
+      author: { "@type": "Person", name: post.author || settings.brand.name },
+      publisher: {
+        "@type": "Organization",
+        name: settings.brand.name,
+        logo: settings.brand.logoUrl
+          ? { "@type": "ImageObject", url: settings.brand.logoUrl }
+          : undefined,
+      },
+      datePublished: post.publishedAt || post.createdAt,
+      dateModified: post.updatedAt,
+    },
+    buildBreadcrumbJsonLd(
+      {
+        ...settings,
+        localization: { ...settings.localization, language: "fa" },
+      },
+      [
+        { name: "خانه", path: "/" },
+        { name: "بلاگ", path: "/blog" },
+        { name: post.title, path: `/blog/${post.slug}` },
+      ],
+    ),
+  ];
+
+  return (
+    <SiteLayout settings={settings}>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={safeJsonLdHtml(jsonLd)}
+      />
+      <div className="container-page max-w-3xl py-16 sm:py-24">
+        <Link
+          to="/blog"
+          className="mb-8 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-brand"
+        >
+          <ArrowRight className="h-4 w-4" />
+          {translateText("بازگشت به بلاگ")}
+        </Link>
+
+        <motion.article
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <h1 className="mb-4 mt-4 text-2xl font-extrabold leading-tight text-foreground sm:text-4xl">
+            {post.title}
+          </h1>
+          <div className="mb-6 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+            {post.author && (
+              <span className="flex items-center gap-1.5">
+                <User className="h-4 w-4" />
+                {post.author}
+              </span>
+            )}
+            {post.publishedAt && (
+              <span className="flex items-center gap-1.5">
+                <Calendar className="h-4 w-4" />
+                {translateText(
+                  new Date(post.publishedAt).toLocaleDateString(locale),
+                )}
+              </span>
+            )}
+          </div>
+          {post.coverImage && (
+            <div className="mb-8 overflow-hidden rounded-xl border border-border">
+              <img
+                src={post.coverImage}
+                alt={post.title}
+                width={1000}
+                height={400}
+                loading="eager"
+                fetchPriority="high"
+                className="h-auto max-h-[400px] w-full object-cover"
+              />
+            </div>
+          )}
+          {post.excerpt && (
+            <p className="mb-8 border-s-4 border-primary/30 ps-4 text-base leading-relaxed text-muted-foreground">
+              {post.excerpt}
+            </p>
+          )}
+
+          <div
+            dir="auto"
+            className="prose prose-sm max-w-none prose-headings:text-foreground prose-p:text-muted-foreground prose-a:text-brand sm:prose-base dark:prose-invert"
+          >
+            <ReactMarkdown components={{ h1: (props) => <h2 {...props} /> }}>
+              {post.content}
+            </ReactMarkdown>
+          </div>
+
+          {post.tags.length > 0 && (
+            <footer className="mt-10 border-t border-border pt-6">
+              <div className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
+                <TagIcon className="h-4 w-4 text-primary" />
+                {translateText("برچسب‌ها")}
+              </div>
+              <ul className="flex flex-wrap gap-2">
+                {post.tags.map((tag) => (
+                  <li key={tag}>
+                    <Link
+                      to="/tag/$slug"
+                      params={{ slug: tagSlug(tag) }}
+                      className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-xs text-brand transition-colors hover:bg-primary/20"
+                    >
+                      #{tag}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </footer>
+          )}
+        </motion.article>
+
+        {related.length > 0 && (
+          <div className="mt-16 border-t border-border pt-10">
+            <h2 className="mb-6 text-lg font-bold text-foreground">
+              {translateText("مقالات مرتبط")}
+            </h2>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              {related.map((r) => (
+                <Link
+                  key={r.id}
+                  to="/blog/$slug"
+                  params={{ slug: r.slug }}
+                  className="rounded-xl border border-border bg-card p-4 shadow-card transition-colors hover:border-primary/30"
+                >
+                  <div className="line-clamp-2 text-sm font-bold text-foreground">
+                    {r.title}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </SiteLayout>
+  );
+}
+
+function BlogNotFound() {
+  const translateText = useSiteTranslation();
+  return <BlogFallback title={translateText("مقاله یافت نشد")} />;
+}
+function BlogError() {
+  const translateText = useSiteTranslation();
+  return <BlogFallback title={translateText("خطایی رخ داد")} />;
+}
+function BlogFallback({ title }: { title: string }) {
+  const translateText = useSiteTranslation();
+  return (
+    <div className="container-page flex min-h-[50vh] flex-col items-center justify-center gap-4 py-24 text-center">
+      <h1 className="text-2xl font-extrabold text-foreground">{title}</h1>
+      <Link to="/blog" className="text-sm text-brand hover:underline">
+        {translateText("بازگشت به بلاگ")}
+      </Link>
+    </div>
+  );
+}
+
+/** English site: the active Respok template; Persian site: the page above. */
+function BlogPostPage() {
+  const data = Route.useLoaderData();
+  if (getSiteLanguage(data.settings) === "en")
+    return <RespokPage page="blogPost" data={data} />;
+  return <PersianBlogPostPage />;
+}
+
+function BlogNotFoundSwitch() {
+  return (
+    <RespokNotFoundSwitch kind="post">
+      <BlogNotFound />
+    </RespokNotFoundSwitch>
+  );
+}

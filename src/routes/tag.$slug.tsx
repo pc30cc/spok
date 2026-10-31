@@ -1,0 +1,197 @@
+import { RespokNotFoundSwitch } from "@/components/respok/RespokNotFound";
+import { RespokPage } from "@/components/respok/RespokPage";
+import { getSiteLanguage } from "@/lib/site-i18n";
+import {
+  useSiteLocale,
+  useSiteTranslation,
+} from "@/components/site/SiteLanguage";
+import { createFileRoute, Link, notFound } from "@tanstack/react-router";
+import { motion } from "framer-motion";
+import {
+  Calendar,
+  ArrowRight,
+  Tag as TagIcon,
+  ChevronLeft,
+} from "lucide-react";
+import { fetchSettings } from "@/lib/settings.functions";
+import { getPublicSeoPage } from "@/lib/seo.functions";
+import {
+  buildPageMeta,
+  buildBreadcrumbJsonLd,
+  safeJsonLdHtml,
+} from "@/lib/seo-meta";
+import { listPublishedPosts } from "@/lib/blog.functions";
+import { SiteLayout } from "@/components/site/SiteLayout";
+
+export const Route = createFileRoute("/tag/$slug")({
+  loader: async ({ params }) => {
+    const [settings, posts, seoOverride] = await Promise.all([
+      fetchSettings(),
+      listPublishedPosts({ data: { tagSlug: params.slug } }),
+      getPublicSeoPage({ data: { path: `/tag/${params.slug}` } }),
+    ]);
+    // برچسبی که هیچ مقاله‌ای ندارد نباید صفحه‌ی خالی با کد ۲۰۰ برگرداند (soft 404) —
+    // چنین صفحه‌ای واقعاً وجود ندارد، پس باید ۴۰۴ واقعی بدهد.
+    if (posts.length === 0) throw notFound();
+    return { settings, posts, slug: params.slug, seoOverride };
+  },
+  head: ({ params, loaderData }) => {
+    if (!loaderData) return {};
+    return buildPageMeta({
+      settings: loaderData.settings,
+      path: `/tag/${params.slug}`,
+      override: loaderData.seoOverride,
+      fallbackTitle: `برچسب: ${params.slug} | وب‌یار`,
+      fallbackDescription: `همه‌ی مقالات منتشرشده با برچسب «${params.slug}».`,
+      // برچسبی با فقط یک مقاله محتوای مستقل و کافی برای ایندکس ندارد (ریسک محتوای کم‌ارزش)
+      defaultRobots:
+        loaderData.posts.length < 2 ? "noindex,follow" : "index,follow",
+    });
+  },
+  notFoundComponent: TagNotFound,
+  component: TagPage,
+});
+
+function PersianTagPage() {
+  const translateText = useSiteTranslation();
+  const locale = useSiteLocale();
+
+  const { settings, posts, slug } = Route.useLoaderData();
+  const base = (settings.brand.siteUrl || "").replace(/\/$/, "");
+  const jsonLd = [
+    {
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      name: `برچسب: ${slug}`,
+      url: base ? `${base}/tag/${slug}` : undefined,
+      mainEntity: {
+        "@type": "ItemList",
+        itemListElement: posts.slice(0, 20).map((p, i) => ({
+          "@type": "ListItem",
+          position: i + 1,
+          url: base ? `${base}/blog/${p.slug}` : undefined,
+          name: p.title,
+        })),
+      },
+    },
+    buildBreadcrumbJsonLd(settings, [
+      { name: "خانه", path: "/" },
+      { name: "بلاگ", path: "/blog" },
+      { name: slug, path: `/tag/${slug}` },
+    ]),
+  ];
+  return (
+    <SiteLayout settings={settings}>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={safeJsonLdHtml(jsonLd)}
+      />
+      <div className="container-page max-w-5xl py-16 sm:py-24">
+        <Link
+          to="/blog"
+          className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-brand"
+        >
+          <ArrowRight className="h-4 w-4" />
+          {translateText("بازگشت به بلاگ")}
+        </Link>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-10"
+        >
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
+            <TagIcon className="h-4 w-4" />
+            {translateText("برچسب")}
+          </div>
+          <h1 className="mb-3 text-3xl font-extrabold text-foreground sm:text-5xl">
+            {slug}
+          </h1>
+          <p className="mt-2 text-xs text-muted-foreground">
+            {translateText(posts.length)} {translateText(" مقاله یافت شد")}
+          </p>
+        </motion.div>
+
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {posts.map((post, i) => (
+            <motion.article
+              key={post.id}
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.05 }}
+              className="group overflow-hidden rounded-xl border border-border bg-card shadow-card transition-colors hover:border-primary/30"
+            >
+              <div className="h-48 overflow-hidden bg-gradient-to-br from-primary/10 via-accent/5 to-secondary">
+                {post.coverImage ? (
+                  <img
+                    src={post.coverImage}
+                    alt={post.title}
+                    loading="lazy"
+                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center">
+                    <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-brand">
+                      {post.categoryName || translateText("عمومی")}
+                    </span>
+                  </div>
+                )}
+              </div>
+              <div className="p-5">
+                <h2 className="mb-2 line-clamp-2 text-base font-bold text-foreground transition-colors group-hover:text-brand">
+                  {post.title}
+                </h2>
+                {post.excerpt && (
+                  <p className="mb-4 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                    {post.excerpt}
+                  </p>
+                )}
+                <div className="mb-3 flex items-center gap-3 text-[11px] text-muted-foreground">
+                  {post.publishedAt && (
+                    <span className="flex items-center gap-1">
+                      <Calendar className="h-3 w-3" />
+                      {translateText(
+                        new Date(post.publishedAt).toLocaleDateString(locale),
+                      )}
+                    </span>
+                  )}
+                </div>
+                <Link
+                  to="/blog/$slug"
+                  params={{ slug: post.slug }}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline"
+                >
+                  {translateText("ادامه مطلب ")}
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+            </motion.article>
+          ))}
+        </div>
+      </div>
+    </SiteLayout>
+  );
+}
+
+/** English site: the active Respok template; Persian site: the page above. */
+function TagPage() {
+  const data = Route.useLoaderData();
+  if (getSiteLanguage(data.settings) === "en")
+    return <RespokPage page="tag" data={data} />;
+  return <PersianTagPage />;
+}
+
+function TagNotFound() {
+  return (
+    <RespokNotFoundSwitch kind="tag">
+      <div className="container-page flex min-h-[50vh] flex-col items-center justify-center gap-4 py-24 text-center">
+        <h1 className="text-2xl font-extrabold text-foreground">
+          برچسبی یافت نشد
+        </h1>
+        <Link to="/blog" className="text-sm text-brand hover:underline">
+          بازگشت به بلاگ
+        </Link>
+      </div>
+    </RespokNotFoundSwitch>
+  );
+}
