@@ -9,6 +9,7 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
+import type { ErrorComponentProps } from "@tanstack/react-router";
 import { motion } from "framer-motion";
 import { Compass, ChevronLeft } from "lucide-react";
 import type { ReactNode } from "react";
@@ -133,7 +134,8 @@ function NotFoundComponent() {
   return <div className="bg-background">{content}</div>;
 }
 
-function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
+// What was thrown arrives as `unknown` (router-core 1.171.2x and later); it is only logged here.
+function ErrorComponent({ error, reset }: ErrorComponentProps) {
   console.error(error);
   const router = useRouter();
 
